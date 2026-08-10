@@ -269,6 +269,78 @@ async function updateDraft(
   };
 }
 
+async function replyToEmail(auth, { messageId, body, cc, bcc }) {
+  const gmail = getGmail(auth);
+
+  const original = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "metadata",
+    metadataHeaders: ["From", "To", "Cc", "Subject", "Message-ID", "References"],
+  });
+
+  const headers = original.data.payload?.headers || [];
+
+  const getHeader = (name) =>
+    headers.find(
+      (header) => header.name.toLowerCase() === name.toLowerCase()
+    )?.value || "";
+
+  const from = getHeader("From");
+  const originalTo = getHeader("To");
+  const originalCc = getHeader("Cc");
+  const subject = getHeader("Subject");
+  const messageIdHeader = getHeader("Message-ID");
+  const references = getHeader("References");
+
+  const replyTo = from.match(/<([^>]+)>/)?.[1] || from;
+
+  const replySubject = /^re:/i.test(subject)
+    ? subject
+    : `Re: ${subject}`;
+
+  const newReferences = references
+    ? `${references} ${messageIdHeader}`.trim()
+    : messageIdHeader;
+
+  const headersOut = [
+    `To: ${replyTo}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(bcc ? [`Bcc: ${bcc}`] : []),
+    `Subject: ${encodeSubject(replySubject)}`,
+    ...(messageIdHeader ? [`In-Reply-To: ${messageIdHeader}`] : []),
+    ...(newReferences ? [`References: ${newReferences}`] : []),
+    "Content-Type: text/plain; charset=utf-8",
+  ];
+
+  const message = [
+    ...headersOut,
+    "",
+    body,
+  ].join("\r\n");
+
+  const raw = Buffer.from(message, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const response = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: {
+      raw,
+      threadId: original.data.threadId,
+    },
+  });
+
+  return {
+    messageId: response.data.id,
+    threadId: response.data.threadId,
+    to: replyTo,
+    subject: replySubject,
+  };
+}
+
 module.exports = {
   searchEmails,
   getEmail,
@@ -277,6 +349,7 @@ module.exports = {
   listDrafts,
   deleteDraft,
   updateDraft,
+  replyToEmail,
 };
 
 async function createDraft(auth, { to, subject, body, cc, bcc }) {

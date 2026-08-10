@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +257,36 @@ async function main() {
         },
 
         {
-          name: "update_draft",
+          name: "reply_to_email",
+        description:
+          "Reply to an existing Gmail message while preserving its conversation thread.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            messageId: {
+              type: "string",
+              description: "The Gmail message ID to reply to.",
+            },
+            body: {
+              type: "string",
+              description: "Reply body.",
+            },
+            cc: {
+              type: "string",
+              description: "Optional CC recipients.",
+            },
+            bcc: {
+              type: "string",
+              description: "Optional BCC recipients.",
+            },
+          },
+          required: ["account", "messageId", "body"],
+        },
+      },
+
+      {
+        name: "update_draft",
         description:
           "Update the contents of an existing Gmail draft without sending it.",
         inputSchema: {
@@ -832,6 +861,27 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "reply_to_email") {
+        const result = await replyToEmail(
+          await authenticate(args.account),
+          {
+            messageId: args.messageId,
+            body: args.body,
+            cc: args.cc,
+            bcc: args.bcc,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "update_draft") {
         const result = await updateDraft(
           await authenticate(args.account),
