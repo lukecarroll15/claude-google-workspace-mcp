@@ -9,96 +9,12 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const http = require("http");
+const { authenticate } = require("./auth/accounts");
 
-const SCOPES = ["https://www.googleapis.com/auth/drive"];
-
-const CREDENTIALS_PATH = path.join(__dirname, "credentials.json");
-const TOKEN_PATH = path.join(__dirname, "token.json");
-
-async function authenticate() {
-  if (!fs.existsSync(CREDENTIALS_PATH)) {
-    throw new Error(`Missing ${CREDENTIALS_PATH}`);
-  }
-
-  const credentials = JSON.parse(
-    fs.readFileSync(CREDENTIALS_PATH, "utf8")
-  );
-
-  const config = credentials.installed || credentials.web;
-
-  const oauth2Client = new google.auth.OAuth2(
-    config.client_id,
-    config.client_secret,
-    "http://localhost:3000"
-  );
-
-  if (fs.existsSync(TOKEN_PATH)) {
-    oauth2Client.setCredentials(
-      JSON.parse(fs.readFileSync(TOKEN_PATH, "utf8"))
-    );
-
-    return oauth2Client;
-  }
-
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    scope: SCOPES,
-    prompt: "consent",
-  });
-
-  console.error("\nOpen this URL in your browser:\n");
-  console.error(authUrl);
-  console.error("\nWaiting for Google authentication...\n");
-
-  const code = await new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const url = new URL(req.url, "http://localhost:3000");
-
-      const code = url.searchParams.get("code");
-      const error = url.searchParams.get("error");
-
-      if (error) {
-        res.end("Authentication failed.");
-        reject(new Error(`Google OAuth error: ${error}`));
-        server.close();
-        return;
-      }
-
-      if (!code) {
-        res.end("Waiting for authentication...");
-        return;
-      }
-
-      res.end(
-        "Authentication successful. You can close this tab."
-      );
-
-      server.close();
-      resolve(code);
-    });
-
-    server.listen(3000, "127.0.0.1", () => {
-      console.error("OAuth callback listening on http://localhost:3000");
-    });
-
-    server.on("error", reject);
-  });
-
-  const { tokens } = await oauth2Client.getToken(code);
-
-  oauth2Client.setCredentials(tokens);
-
-  fs.writeFileSync(
-    TOKEN_PATH,
-    JSON.stringify(tokens, null, 2)
-  );
-
-  return oauth2Client;
-}
+const DEFAULT_ACCOUNT = "personal";
 
 async function main() {
-  const auth = await authenticate();
+  const auth = await authenticate(DEFAULT_ACCOUNT);
 
   const drive = google.drive({
     version: "v3",
@@ -108,7 +24,7 @@ async function main() {
   const server = new Server(
     {
       name: "claude-google-drive-full-access",
-      version: "1.0.0",
+      version: "2.0.0",
     },
     {
       capabilities: {
@@ -186,7 +102,7 @@ async function main() {
         {
           name: "download_file",
           description:
-            "Download a Google Drive file to the local computer. Useful for PDFs, Word documents, images and other binary files.",
+            "Download a Google Drive file to the local computer.",
           inputSchema: {
             type: "object",
             properties: {
@@ -437,10 +353,8 @@ async function main() {
           };
         }
 
-        // Plain text / text-like files
-        if (
-          file.mimeType?.startsWith("text/")
-        ) {
+        // Plain text files
+        if (file.mimeType?.startsWith("text/")) {
           const response = await drive.files.get(
             {
               fileId: args.fileId,
