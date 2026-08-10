@@ -121,10 +121,48 @@ async function getEmail(auth, messageId) {
   };
 }
 
+
+async function sendEmail(auth, { to, subject, body, cc, bcc }) {
+  const gmail = getGmail(auth);
+
+  const headers = [
+    `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(bcc ? [`Bcc: ${bcc}`] : []),
+    `Subject: ${subject}`,
+    "Content-Type: text/plain; charset=utf-8",
+  ];
+
+  const message = [
+    ...headers,
+    "",
+    body,
+  ].join("\r\n");
+
+  const raw = Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const response = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: {
+      raw,
+    },
+  });
+
+  return {
+    messageId: response.data.id,
+    threadId: response.data.threadId,
+  };
+}
+
 module.exports = {
   searchEmails,
   getEmail,
   createDraft,
+  sendEmail,
 };
 
 async function createDraft(auth, { to, subject, body, cc, bcc }) {
