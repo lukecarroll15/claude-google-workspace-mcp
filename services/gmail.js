@@ -124,4 +124,44 @@ async function getEmail(auth, messageId) {
 module.exports = {
   searchEmails,
   getEmail,
+  createDraft,
 };
+
+async function createDraft(auth, { to, subject, body, cc, bcc }) {
+  const gmail = getGmail(auth);
+
+  const headers = [
+    `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(bcc ? [`Bcc: ${bcc}`] : []),
+    `Subject: ${subject}`,
+    "Content-Type: text/plain; charset=utf-8",
+  ];
+
+  const message = [
+    ...headers,
+    "",
+    body,
+  ].join("\r\n");
+
+  const raw = Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const response = await gmail.users.drafts.create({
+    userId: "me",
+    requestBody: {
+      message: {
+        raw,
+      },
+    },
+  });
+
+  return {
+    draftId: response.data.id,
+    messageId: response.data.message?.id,
+    threadId: response.data.message?.threadId,
+  };
+}

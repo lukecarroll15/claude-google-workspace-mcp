@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +257,40 @@ async function main() {
         },
 
         {
-          name: "search_emails",
+          name: "create_draft",
+        description:
+          "Create a Gmail draft without sending it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            to: {
+              type: "string",
+              description: "Recipient email address.",
+            },
+            subject: {
+              type: "string",
+              description: "Email subject.",
+            },
+            body: {
+              type: "string",
+              description: "Plain-text email body.",
+            },
+            cc: {
+              type: "string",
+              description: "Optional CC recipients.",
+            },
+            bcc: {
+              type: "string",
+              description: "Optional BCC recipients.",
+            },
+          },
+          required: ["account", "to", "subject", "body"],
+        },
+      },
+
+      {
+        name: "search_emails",
         description:
           "Search Gmail messages using Gmail search syntax.",
         inputSchema: {
@@ -689,6 +722,29 @@ async function main() {
                 JSON.stringify(response.data) +
                 `\n\nNote: Google Drive may restore an item to My Drive root ` +
                 `if its original parent folder was also trashed.`,
+            },
+          ],
+        };
+      }
+
+      // GMAIL CREATE DRAFT
+      if (name === "create_draft") {
+        const draft = await createDraft(
+          await authenticate(args.account),
+          {
+            to: args.to,
+            subject: args.subject,
+            body: args.body,
+            cc: args.cc,
+            bcc: args.bcc,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(draft, null, 2),
             },
           ],
         };
