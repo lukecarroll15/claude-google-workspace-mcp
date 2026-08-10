@@ -10,7 +10,7 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
-const { listEvents } = require("./services/calendar");
+const { listEvents, searchEvents } = require("./services/calendar");
 const {
   authenticate,
   listAccounts,
@@ -258,7 +258,42 @@ async function main() {
         },
 
         {
-          name: "list_events",
+          name: "search_events",
+        description:
+          "Search Google Calendar events by text. Searches event title, description, location, and other event fields supported by Google Calendar.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            query: {
+              type: "string",
+              description: "Text to search for in calendar events.",
+            },
+            calendarId: {
+              type: "string",
+              description: "Calendar ID. Defaults to primary.",
+            },
+            timeMin: {
+              type: "string",
+              description:
+                "Start of the time range in RFC3339 format. Defaults to now.",
+            },
+            timeMax: {
+              type: "string",
+              description:
+                "End of the time range in RFC3339 format.",
+            },
+            maxResults: {
+              type: "number",
+              description: "Maximum number of results. Defaults to 20.",
+            },
+          },
+          required: ["account", "query"],
+        },
+      },
+
+      {
+        name: "list_events",
         description:
           "List Google Calendar events for an account. Defaults to the primary calendar.",
         inputSchema: {
@@ -893,6 +928,28 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "search_events") {
+        const events = await searchEvents(
+          await authenticate(args.account),
+          {
+            calendarId: args.calendarId || "primary",
+            query: args.query,
+            timeMin: args.timeMin,
+            timeMax: args.timeMax,
+            maxResults: args.maxResults || 20,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(events, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "list_events") {
         const events = await listEvents(
           await authenticate(args.account),
