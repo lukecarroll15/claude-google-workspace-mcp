@@ -10,7 +10,7 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
-const { listEvents, searchEvents } = require("./services/calendar");
+const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
 const {
   authenticate,
   listAccounts,
@@ -258,7 +258,128 @@ async function main() {
         },
 
         {
-          name: "search_events",
+          name: "delete_event",
+        description:
+          "Delete an existing Google Calendar event.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            calendarId: {
+              type: "string",
+              description: "Calendar ID. Defaults to primary.",
+            },
+            eventId: {
+              type: "string",
+              description: "ID of the event to delete.",
+            },
+          },
+          required: ["account", "eventId"],
+        },
+      },
+
+      {
+        name: "update_event",
+        description:
+          "Update an existing Google Calendar event. Only supplied fields are changed.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            calendarId: {
+              type: "string",
+              description: "Calendar ID. Defaults to primary.",
+            },
+            eventId: {
+              type: "string",
+              description: "ID of the event to update.",
+            },
+            summary: {
+              type: "string",
+              description: "New event title.",
+            },
+            description: {
+              type: "string",
+              description: "New event description.",
+            },
+            location: {
+              type: "string",
+              description: "New event location.",
+            },
+            start: {
+              type: "string",
+              description: "New event start time in RFC3339 format.",
+            },
+            end: {
+              type: "string",
+              description: "New event end time in RFC3339 format.",
+            },
+            timeZone: {
+              type: "string",
+              description: "Optional IANA time zone, e.g. Europe/Dublin.",
+            },
+            attendees: {
+              type: "array",
+              items: {
+                type: "string",
+              },
+              description: "New attendee email addresses.",
+            },
+          },
+          required: ["account", "eventId"],
+        },
+      },
+
+      {
+        name: "create_event",
+        description:
+          "Create a Google Calendar event on the selected account's calendar.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            calendarId: {
+              type: "string",
+              description: "Calendar ID. Defaults to primary.",
+            },
+            summary: {
+              type: "string",
+              description: "Event title.",
+            },
+            description: {
+              type: "string",
+              description: "Optional event description.",
+            },
+            location: {
+              type: "string",
+              description: "Optional event location.",
+            },
+            start: {
+              type: "string",
+              description: "Event start time in RFC3339 format.",
+            },
+            end: {
+              type: "string",
+              description: "Event end time in RFC3339 format.",
+            },
+            timeZone: {
+              type: "string",
+              description: "Optional IANA time zone, e.g. Europe/Dublin.",
+            },
+            attendees: {
+              type: "array",
+              items: {
+                type: "string",
+              },
+              description: "Optional list of attendee email addresses.",
+            },
+          },
+          required: ["account", "summary", "start", "end"],
+        },
+      },
+
+      {
+        name: "search_events",
         description:
           "Search Google Calendar events by text. Searches event title, description, location, and other event fields supported by Google Calendar.",
         inputSchema: {
@@ -928,6 +1049,76 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "delete_event") {
+        const result = await deleteEvent(
+          await authenticate(args.account),
+          {
+            calendarId: args.calendarId || "primary",
+            eventId: args.eventId,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "update_event") {
+        const event = await updateEvent(
+          await authenticate(args.account),
+          {
+            calendarId: args.calendarId || "primary",
+            eventId: args.eventId,
+            summary: args.summary,
+            description: args.description,
+            location: args.location,
+            start: args.start,
+            end: args.end,
+            timeZone: args.timeZone,
+            attendees: args.attendees,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(event, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "create_event") {
+        const event = await createEvent(
+          await authenticate(args.account),
+          {
+            calendarId: args.calendarId || "primary",
+            summary: args.summary,
+            description: args.description,
+            location: args.location,
+            start: args.start,
+            end: args.end,
+            timeZone: args.timeZone,
+            attendees: args.attendees,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(event, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "search_events") {
         const events = await searchEvents(
           await authenticate(args.account),
