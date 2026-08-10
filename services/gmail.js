@@ -1,5 +1,11 @@
 const { google } = require("googleapis");
 
+function encodeSubject(subject) {
+  return /[^\\x00-\\x7F]/.test(subject)
+    ? `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`
+    : subject;
+}
+
 function getGmail(auth) {
   return google.gmail({
     version: "v1",
@@ -129,7 +135,7 @@ async function sendEmail(auth, { to, subject, body, cc, bcc }) {
     `To: ${to}`,
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     "Content-Type: text/plain; charset=utf-8",
   ];
 
@@ -139,7 +145,9 @@ async function sendEmail(auth, { to, subject, body, cc, bcc }) {
     body,
   ].join("\r\n");
 
-  const raw = Buffer.from(message)
+  const encodedMessage = Buffer.from(message, "utf8");
+
+  const raw = encodedMessage
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -217,23 +225,18 @@ async function deleteDraft(auth, draftId) {
   };
 }
 
-module.exports = {
-  searchEmails,
-  getEmail,
-  createDraft,
-  sendEmail,
-  listDrafts,
-  deleteDraft,
-};
 
-async function createDraft(auth, { to, subject, body, cc, bcc }) {
+async function updateDraft(
+  auth,
+  { draftId, to, subject, body, cc, bcc }
+) {
   const gmail = getGmail(auth);
 
   const headers = [
     `To: ${to}`,
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     "Content-Type: text/plain; charset=utf-8",
   ];
 
@@ -243,7 +246,57 @@ async function createDraft(auth, { to, subject, body, cc, bcc }) {
     body,
   ].join("\r\n");
 
-  const raw = Buffer.from(message)
+  const raw = Buffer.from(message, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const response = await gmail.users.drafts.update({
+    userId: "me",
+    id: draftId,
+    requestBody: {
+      message: {
+        raw,
+      },
+    },
+  });
+
+  return {
+    draftId: response.data.id,
+    messageId: response.data.message?.id,
+    threadId: response.data.message?.threadId,
+  };
+}
+
+module.exports = {
+  searchEmails,
+  getEmail,
+  createDraft,
+  sendEmail,
+  listDrafts,
+  deleteDraft,
+  updateDraft,
+};
+
+async function createDraft(auth, { to, subject, body, cc, bcc }) {
+  const gmail = getGmail(auth);
+
+  const headers = [
+    `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(bcc ? [`Bcc: ${bcc}`] : []),
+    `Subject: ${encodeSubject(subject)}`,
+    "Content-Type: text/plain; charset=utf-8",
+  ];
+
+  const message = [
+    ...headers,
+    "",
+    body,
+  ].join("\r\n");
+
+  const raw = Buffer.from(message, "utf8")
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")

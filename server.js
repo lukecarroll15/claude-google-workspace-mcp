@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +257,44 @@ async function main() {
         },
 
         {
-          name: "delete_draft",
+          name: "update_draft",
+        description:
+          "Update the contents of an existing Gmail draft without sending it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            draftId: {
+              type: "string",
+              description: "The Gmail draft ID to update.",
+            },
+            to: {
+              type: "string",
+              description: "Recipient email address.",
+            },
+            subject: {
+              type: "string",
+              description: "Email subject.",
+            },
+            body: {
+              type: "string",
+              description: "Email body.",
+            },
+            cc: {
+              type: "string",
+              description: "Optional CC recipients.",
+            },
+            bcc: {
+              type: "string",
+              description: "Optional BCC recipients.",
+            },
+          },
+          required: ["account", "draftId", "to", "subject", "body"],
+        },
+      },
+
+      {
+        name: "delete_draft",
         description:
           "Permanently delete a Gmail draft from the selected account.",
         inputSchema: {
@@ -795,6 +832,29 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "update_draft") {
+        const result = await updateDraft(
+          await authenticate(args.account),
+          {
+            draftId: args.draftId,
+            to: args.to,
+            subject: args.subject,
+            body: args.body,
+            cc: args.cc,
+            bcc: args.bcc,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "delete_draft") {
         const result = await deleteDraft(
           await authenticate(args.account),
