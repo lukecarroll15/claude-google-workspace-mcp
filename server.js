@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +257,24 @@ async function main() {
         },
 
         {
-          name: "send_email",
+          name: "list_drafts",
+        description:
+          "List Gmail drafts in the selected account.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            maxResults: {
+              type: "number",
+              description: "Maximum number of drafts to return. Defaults to 20.",
+            },
+          },
+          required: ["account"],
+        },
+      },
+
+      {
+        name: "send_email",
         description:
           "Send an email immediately from the selected Gmail account.",
         inputSchema: {
@@ -755,6 +772,23 @@ async function main() {
                 JSON.stringify(response.data) +
                 `\n\nNote: Google Drive may restore an item to My Drive root ` +
                 `if its original parent folder was also trashed.`,
+            },
+          ],
+        };
+      }
+
+      // GMAIL LIST DRAFTS
+      if (name === "list_drafts") {
+        const drafts = await listDrafts(
+          await authenticate(args.account),
+          args.maxResults || 20
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(drafts, null, 2),
             },
           ],
         };

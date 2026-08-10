@@ -158,11 +158,56 @@ async function sendEmail(auth, { to, subject, body, cc, bcc }) {
   };
 }
 
+
+async function listDrafts(auth, maxResults = 20) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.drafts.list({
+    userId: "me",
+    maxResults,
+  });
+
+  const drafts = response.data.drafts || [];
+
+  const results = [];
+
+  for (const draft of drafts) {
+    const message = await gmail.users.messages.get({
+      userId: "me",
+      id: draft.message.id,
+      format: "metadata",
+      metadataHeaders: ["From", "To", "Cc", "Subject", "Date"],
+    });
+
+    const headers = message.data.payload?.headers || [];
+
+    const getHeader = (name) =>
+      headers.find(
+        (header) =>
+          header.name.toLowerCase() === name.toLowerCase()
+      )?.value || "";
+
+    results.push({
+      draftId: draft.id,
+      messageId: draft.message.id,
+      threadId: draft.message.threadId,
+      from: getHeader("From"),
+      to: getHeader("To"),
+      cc: getHeader("Cc"),
+      subject: getHeader("Subject"),
+      date: getHeader("Date"),
+    });
+  }
+
+  return results;
+}
+
 module.exports = {
   searchEmails,
   getEmail,
   createDraft,
   sendEmail,
+  listDrafts,
 };
 
 async function createDraft(auth, { to, subject, body, cc, bcc }) {
