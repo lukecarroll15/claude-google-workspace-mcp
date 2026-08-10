@@ -10,6 +10,7 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
+const { listEvents } = require("./services/calendar");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +258,38 @@ async function main() {
         },
 
         {
-          name: "reply_to_email",
+          name: "list_events",
+        description:
+          "List Google Calendar events for an account. Defaults to the primary calendar.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            calendarId: {
+              type: "string",
+              description: "Calendar ID. Defaults to primary.",
+            },
+            timeMin: {
+              type: "string",
+              description:
+                "Start of the time range in RFC3339 format. Defaults to now.",
+            },
+            timeMax: {
+              type: "string",
+              description:
+                "End of the time range in RFC3339 format.",
+            },
+            maxResults: {
+              type: "number",
+              description: "Maximum number of events to return. Defaults to 20.",
+            },
+          },
+          required: ["account"],
+        },
+      },
+
+      {
+        name: "reply_to_email",
         description:
           "Reply to an existing Gmail message while preserving its conversation thread.",
         inputSchema: {
@@ -861,6 +893,27 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "list_events") {
+        const events = await listEvents(
+          await authenticate(args.account),
+          {
+            calendarId: args.calendarId || "primary",
+            timeMin: args.timeMin,
+            timeMax: args.timeMax,
+            maxResults: args.maxResults || 20,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(events, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "reply_to_email") {
         const result = await replyToEmail(
           await authenticate(args.account),
