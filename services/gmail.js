@@ -1,0 +1,127 @@
+const { google } = require("googleapis");
+
+function getGmail(auth) {
+  return google.gmail({
+    version: "v1",
+    auth,
+  });
+}
+
+function decodeBase64Url(data) {
+  if (!data) return "";
+
+  return Buffer.from(
+    data.replace(/-/g, "+").replace(/_/g, "/"),
+    "base64"
+  ).toString("utf8");
+}
+
+function getHeader(headers, name) {
+  const header = headers?.find(
+    (h) => h.name?.toLowerCase() === name.toLowerCase()
+  );
+
+  return header?.value || "";
+}
+
+function extractBody(payload) {
+  if (!payload) return "";
+
+  if (payload.body?.data) {
+    return decodeBase64Url(payload.body.data);
+  }
+
+  if (payload.parts) {
+    const plainPart = payload.parts.find(
+      (part) => part.mimeType === "text/plain"
+    );
+
+    if (plainPart) {
+      return extractBody(plainPart);
+    }
+
+    for (const part of payload.parts) {
+      const result = extractBody(part);
+      if (result) return result;
+    }
+  }
+
+  return "";
+}
+
+async function searchEmails(auth, query, maxResults = 20) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.messages.list({
+    userId: "me",
+    q: query,
+    maxResults,
+  });
+
+  const messages = response.data.messages || [];
+
+  const results = [];
+
+  for (const message of messages) {
+    const response = await gmail.users.messages.get({
+      userId: "me",
+      id: message.id,
+      format: "metadata",
+      metadataHeaders: [
+        "From",
+        "To",
+        "Cc",
+        "Subject",
+        "Date",
+      ],
+    });
+
+    const data = response.data;
+    const headers = data.payload?.headers || [];
+
+    results.push({
+      id: data.id,
+      threadId: data.threadId,
+      from: getHeader(headers, "From"),
+      to: getHeader(headers, "To"),
+      cc: getHeader(headers, "Cc"),
+      subject: getHeader(headers, "Subject"),
+      date: getHeader(headers, "Date"),
+      labelIds: data.labelIds || [],
+      snippet: data.snippet || "",
+    });
+  }
+
+  return results;
+}
+
+async function getEmail(auth, messageId) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "full",
+  });
+
+  const data = response.data;
+  const headers = data.payload?.headers || [];
+
+  return {
+    id: data.id,
+    threadId: data.threadId,
+    from: getHeader(headers, "From"),
+    to: getHeader(headers, "To"),
+    cc: getHeader(headers, "Cc"),
+    bcc: getHeader(headers, "Bcc"),
+    subject: getHeader(headers, "Subject"),
+    date: getHeader(headers, "Date"),
+    labelIds: data.labelIds || [],
+    body: extractBody(data.payload),
+  };
+}
+
+module.exports = {
+  searchEmails,
+  getEmail,
+};

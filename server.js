@@ -9,6 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
+const { searchEmails, getEmail } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -256,7 +257,47 @@ async function main() {
         },
 
         {
-          name: "untrash_file",
+          name: "search_emails",
+        description:
+          "Search Gmail messages using Gmail search syntax.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            query: {
+              type: "string",
+              description:
+                "Gmail search query using standard Gmail syntax. Normal searches exclude Trash and Spam. Use in:anywhere when you also want to search Trash and Spam. Examples: from:someone@example.com, subject:invoice, newer_than:7d, in:anywhere",
+            },
+            maxResults: {
+              type: "number",
+              description:
+                "Maximum number of emails to return. Default 20.",
+            },
+          },
+          required: ["account", "query"],
+        },
+      },
+
+      {
+        name: "get_email",
+        description:
+          "Read the contents and metadata of a Gmail message.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            messageId: {
+              type: "string",
+              description: "Gmail message ID.",
+            },
+          },
+          required: ["account", "messageId"],
+        },
+      },
+
+      {
+        name: "untrash_file",
           description:
             "Restore a Google Drive file or folder from the trash.",
           inputSchema: {
@@ -648,6 +689,41 @@ async function main() {
                 JSON.stringify(response.data) +
                 `\n\nNote: Google Drive may restore an item to My Drive root ` +
                 `if its original parent folder was also trashed.`,
+            },
+          ],
+        };
+      }
+
+      // GMAIL SEARCH
+      if (name === "search_emails") {
+        const results = await searchEmails(
+          await authenticate(args.account),
+          args.query,
+          args.maxResults || 20
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(results, null, 2),
+            },
+          ],
+        };
+      }
+
+      // GMAIL READ
+      if (name === "get_email") {
+        const email = await getEmail(
+          await authenticate(args.account),
+          args.messageId
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(email, null, 2),
             },
           ],
         };
