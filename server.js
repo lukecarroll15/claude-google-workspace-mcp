@@ -9,22 +9,60 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { authenticate } = require("./auth/accounts");
+const {
+  authenticate,
+  listAccounts,
+} = require("./auth/accounts");
 
-const DEFAULT_ACCOUNT = "personal";
+async function getDrive(account) {
+  if (!account) {
+    throw new Error(
+      `Account is required. Available accounts: ${listAccounts().join(", ")}`
+    );
+  }
 
-async function main() {
-  const auth = await authenticate(DEFAULT_ACCOUNT);
+  const accounts = listAccounts();
 
-  const drive = google.drive({
+  if (!accounts.includes(account)) {
+    throw new Error(
+      `Unknown account "${account}". Available accounts: ${accounts.join(", ")}`
+    );
+  }
+
+  const auth = await authenticate(account);
+
+  return google.drive({
     version: "v3",
     auth,
   });
+}
+
+function accountProperty() {
+  return {
+    type: "string",
+    description:
+      "Google account to use. Available accounts: personal, college, branch.",
+    enum: ["personal", "college", "branch"],
+  };
+}
+
+async function main() {
+  const accounts = listAccounts();
+
+  if (accounts.length === 0) {
+    throw new Error(
+      "No Google accounts are authenticated. Run node auth/login.js <account> first."
+    );
+  }
+
+  console.error(
+    `Google Workspace MCP starting. Authenticated accounts: ${accounts.join(", ")}`
+  );
 
   const server = new Server(
     {
-      name: "claude-google-drive-full-access",
-      version: "2.0.0",
+      name: "claude-google-workspace-mcp",
+      version: "2.1.0",
     },
     {
       capabilities: {
@@ -40,17 +78,18 @@ async function main() {
         {
           name: "search_files",
           description:
-            "Search Google Drive files and folders using a Google Drive query.",
+            "Search files and folders in a specified Google Drive account.",
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               query: {
                 type: "string",
                 description:
                   "Google Drive query. Example: name contains 'invoice'",
               },
             },
-            required: ["query"],
+            required: ["account", "query"],
           },
         },
 
@@ -61,11 +100,12 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
             },
-            required: ["fileId"],
+            required: ["account", "fileId"],
           },
         },
 
@@ -76,11 +116,12 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               folderId: {
                 type: "string",
               },
             },
-            required: ["folderId"],
+            required: ["account", "folderId"],
           },
         },
 
@@ -91,11 +132,12 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
             },
-            required: ["fileId"],
+            required: ["account", "fileId"],
           },
         },
 
@@ -106,6 +148,7 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
@@ -113,7 +156,7 @@ async function main() {
                 type: "string",
               },
             },
-            required: ["fileId", "destinationPath"],
+            required: ["account", "fileId", "destinationPath"],
           },
         },
 
@@ -124,6 +167,7 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
@@ -131,7 +175,7 @@ async function main() {
                 type: "string",
               },
             },
-            required: ["fileId", "newName"],
+            required: ["account", "fileId", "newName"],
           },
         },
 
@@ -142,6 +186,7 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
@@ -149,7 +194,7 @@ async function main() {
                 type: "string",
               },
             },
-            required: ["fileId", "destinationFolderId"],
+            required: ["account", "fileId", "destinationFolderId"],
           },
         },
 
@@ -160,6 +205,7 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               name: {
                 type: "string",
               },
@@ -167,7 +213,7 @@ async function main() {
                 type: "string",
               },
             },
-            required: ["name"],
+            required: ["account", "name"],
           },
         },
 
@@ -178,6 +224,7 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
@@ -188,7 +235,7 @@ async function main() {
                 type: "string",
               },
             },
-            required: ["fileId"],
+            required: ["account", "fileId"],
           },
         },
 
@@ -199,11 +246,28 @@ async function main() {
           inputSchema: {
             type: "object",
             properties: {
+              account: accountProperty(),
               fileId: {
                 type: "string",
               },
             },
-            required: ["fileId"],
+            required: ["account", "fileId"],
+          },
+        },
+
+        {
+          name: "untrash_file",
+          description:
+            "Restore a Google Drive file or folder from the trash.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              account: accountProperty(),
+              fileId: {
+                type: "string",
+              },
+            },
+            required: ["account", "fileId"],
           },
         },
       ],
@@ -214,6 +278,8 @@ async function main() {
     CallToolRequestSchema,
     async (request) => {
       const { name, arguments: args } = request.params;
+
+      const drive = await getDrive(args.account);
 
       // SEARCH
       if (name === "search_files") {
@@ -243,7 +309,7 @@ async function main() {
         const response = await drive.files.get({
           fileId: args.fileId,
           fields:
-            "id,name,mimeType,parents,modifiedTime,size,webViewLink",
+            "id,name,mimeType,parents,modifiedTime,size,webViewLink,trashed",
         });
 
         return {
@@ -293,7 +359,6 @@ async function main() {
 
         const file = metadata.data;
 
-        // Google Docs
         if (
           file.mimeType ===
           "application/vnd.google-apps.document"
@@ -313,7 +378,6 @@ async function main() {
           };
         }
 
-        // Google Sheets
         if (
           file.mimeType ===
           "application/vnd.google-apps.spreadsheet"
@@ -333,7 +397,6 @@ async function main() {
           };
         }
 
-        // Google Slides
         if (
           file.mimeType ===
           "application/vnd.google-apps.presentation"
@@ -353,7 +416,6 @@ async function main() {
           };
         }
 
-        // Plain text files
         if (file.mimeType?.startsWith("text/")) {
           const response = await drive.files.get(
             {
@@ -388,7 +450,7 @@ async function main() {
         };
       }
 
-      // DOWNLOAD FILE
+      // DOWNLOAD
       if (name === "download_file") {
         const metadata = await drive.files.get({
           fileId: args.fileId,
@@ -513,7 +575,7 @@ async function main() {
         };
       }
 
-      // COPY FILE
+      // COPY
       if (name === "copy_file") {
         const requestBody = {};
 
@@ -562,6 +624,30 @@ async function main() {
               text:
                 `Moved to trash: ` +
                 JSON.stringify(response.data),
+            },
+          ],
+        };
+      }
+
+      // UNTRASH
+      if (name === "untrash_file") {
+        const response = await drive.files.update({
+          fileId: args.fileId,
+          requestBody: {
+            trashed: false,
+          },
+          fields: "id,name,trashed,parents",
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Restored successfully: ` +
+                JSON.stringify(response.data) +
+                `\n\nNote: Google Drive may restore an item to My Drive root ` +
+                `if its original parent folder was also trashed.`,
             },
           ],
         };
