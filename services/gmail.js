@@ -202,12 +202,28 @@ async function listDrafts(auth, maxResults = 20) {
   return results;
 }
 
+
+async function deleteDraft(auth, draftId) {
+  const gmail = getGmail(auth);
+
+  await gmail.users.drafts.delete({
+    userId: "me",
+    id: draftId,
+  });
+
+  return {
+    draftId,
+    deleted: true,
+  };
+}
+
 module.exports = {
   searchEmails,
   getEmail,
   createDraft,
   sendEmail,
   listDrafts,
+  deleteDraft,
 };
 
 async function createDraft(auth, { to, subject, body, cc, bcc }) {

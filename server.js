@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft } = require("./services/gmail");
 const {
   authenticate,
   listAccounts,
@@ -257,7 +257,24 @@ async function main() {
         },
 
         {
-          name: "list_drafts",
+          name: "delete_draft",
+        description:
+          "Permanently delete a Gmail draft from the selected account.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            draftId: {
+              type: "string",
+              description: "The Gmail draft ID to delete.",
+            },
+          },
+          required: ["account", "draftId"],
+        },
+      },
+
+      {
+        name: "list_drafts",
         description:
           "List Gmail drafts in the selected account.",
         inputSchema: {
@@ -778,6 +795,22 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "delete_draft") {
+        const result = await deleteDraft(
+          await authenticate(args.account),
+          args.draftId
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "list_drafts") {
         const drafts = await listDrafts(
           await authenticate(args.account),
