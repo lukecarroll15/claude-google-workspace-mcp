@@ -11,6 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
 const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
+const { createDocument, getDocument, updateDocument, appendToDocument } = require("./services/docs");
 const {
   authenticate,
   listAccounts,
@@ -258,6 +259,78 @@ async function main() {
         },
 
         {
+      name: "create_document",
+      description: "Create a new Google Doc.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          account: accountProperty(),
+          title: {
+            type: "string",
+            description: "Title of the new Google Doc.",
+          },
+        },
+        required: ["account", "title"],
+      },
+    },
+
+    {
+      name: "get_document",
+      description: "Read a Google Doc.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          account: accountProperty(),
+          documentId: {
+            type: "string",
+            description: "Google Docs document ID.",
+          },
+        },
+        required: ["account", "documentId"],
+      },
+    },
+
+    {
+      name: "update_document",
+      description: "Replace the content of a Google Doc.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          account: accountProperty(),
+          documentId: {
+            type: "string",
+            description: "Google Docs document ID.",
+          },
+          text: {
+            type: "string",
+            description: "New document text.",
+          },
+        },
+        required: ["account", "documentId", "text"],
+      },
+    },
+
+    {
+      name: "append_to_document",
+      description: "Append text to the end of a Google Doc.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          account: accountProperty(),
+          documentId: {
+            type: "string",
+            description: "Google Docs document ID.",
+          },
+          text: {
+            type: "string",
+            description: "Text to append.",
+          },
+        },
+        required: ["account", "documentId", "text"],
+      },
+    },
+
+    {
           name: "delete_event",
         description:
           "Delete an existing Google Calendar event.",
@@ -1049,6 +1122,80 @@ async function main() {
       }
 
       // GMAIL LIST DRAFTS
+      if (name === "create_document") {
+        const document = await createDocument(
+          await authenticate(args.account),
+          {
+            title: args.title,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(document, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "get_document") {
+        const document = await getDocument(
+          await authenticate(args.account),
+          {
+            documentId: args.documentId,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(document, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "update_document") {
+        const document = await updateDocument(
+          await authenticate(args.account),
+          {
+            documentId: args.documentId,
+            text: args.text,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(document, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "append_to_document") {
+        const document = await appendToDocument(
+          await authenticate(args.account),
+          {
+            documentId: args.documentId,
+            text: args.text,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(document, null, 2),
+            },
+          ],
+        };
+      }
+
       if (name === "delete_event") {
         const result = await deleteEvent(
           await authenticate(args.account),
