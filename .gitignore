@@ -6,3 +6,5 @@ node_modules/
 *.log
 server-drive-backup.js
 server-drive-before-multiaccount.js
+meta-token.json
+shopify-token.json

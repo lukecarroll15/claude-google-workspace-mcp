@@ -1,4 +1,6 @@
 const { google } = require("googleapis");
+const fs = require("fs");
+const path = require("path");
 
 function encodeSubject(subject) {
   return /[^\\x00-\\x7F]/.test(subject)
@@ -20,6 +22,56 @@ function decodeBase64Url(data) {
     data.replace(/-/g, "+").replace(/_/g, "/"),
     "base64"
   ).toString("utf8");
+}
+
+function listAttachments(payload, found = []) {
+  if (!payload) return found;
+
+  if (payload.filename && payload.body?.attachmentId) {
+    found.push({
+      filename: payload.filename,
+      mimeType: payload.mimeType,
+      size: payload.body.size,
+      attachmentId: payload.body.attachmentId,
+    });
+  }
+
+  for (const part of payload.parts || []) {
+    listAttachments(part, found);
+  }
+
+  return found;
+}
+
+async function downloadAttachment(
+  auth,
+  messageId,
+  attachmentId,
+  destinationPath
+) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.messages.attachments.get({
+    userId: "me",
+    messageId,
+    id: attachmentId,
+  });
+
+  const buffer = Buffer.from(
+    (response.data.data || "").replace(/-/g, "+").replace(/_/g, "/"),
+    "base64"
+  );
+
+  const directory = path.dirname(destinationPath);
+
+  if (directory) fs.mkdirSync(directory, { recursive: true });
+
+  fs.writeFileSync(destinationPath, buffer);
+
+  return {
+    path: destinationPath,
+    bytes: buffer.length,
+  };
 }
 
 function getHeader(headers, name) {
@@ -124,6 +176,7 @@ async function getEmail(auth, messageId) {
     date: getHeader(headers, "Date"),
     labelIds: data.labelIds || [],
     body: extractBody(data.payload),
+    attachments: listAttachments(data.payload),
   };
 }
 
@@ -350,6 +403,7 @@ module.exports = {
   deleteDraft,
   updateDraft,
   replyToEmail,
+  downloadAttachment,
 };
 
 async function createDraft(auth, { to, subject, body, cc, bcc }) {

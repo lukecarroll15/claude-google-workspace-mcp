@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail, downloadAttachment } = require("./services/gmail");
 const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
 const { createDocument, getDocument, updateDocument, appendToDocument } = require("./services/docs");
 const {
@@ -41,11 +41,13 @@ async function getDrive(account) {
 }
 
 function accountProperty() {
+  const accounts = listAccounts();
+
   return {
     type: "string",
     description:
-      "Google account to use. Available accounts: personal, college, branch.",
-    enum: ["personal", "college", "branch"],
+      `Google account to use. Available accounts: ${accounts.join(", ")}.`,
+    enum: accounts,
   };
 }
 
@@ -709,7 +711,7 @@ async function main() {
       {
         name: "get_email",
         description:
-          "Read the contents and metadata of a Gmail message.",
+          "Read the contents and metadata of a Gmail message. The attachments array lists each attachment's attachmentId for use with download_attachment.",
         inputSchema: {
           type: "object",
           properties: {
@@ -720,6 +722,38 @@ async function main() {
             },
           },
           required: ["account", "messageId"],
+        },
+      },
+
+      {
+        name: "download_attachment",
+        description:
+          "Download an attachment from a Gmail message to the local computer. Call get_email first to read the attachmentId from its attachments array.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            messageId: {
+              type: "string",
+              description: "Gmail message ID.",
+            },
+            attachmentId: {
+              type: "string",
+              description:
+                "Attachment ID, from the attachments array returned by get_email.",
+            },
+            destinationPath: {
+              type: "string",
+              description:
+                "Absolute path to write the file to. Parent directories are created if missing.",
+            },
+          },
+          required: [
+            "account",
+            "messageId",
+            "attachmentId",
+            "destinationPath",
+          ],
         },
       },
 
@@ -1461,6 +1495,24 @@ async function main() {
             {
               type: "text",
               text: JSON.stringify(email, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "download_attachment") {
+        const result = await downloadAttachment(
+          await authenticate(args.account),
+          args.messageId,
+          args.attachmentId,
+          args.destinationPath
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
             },
           ],
         };
