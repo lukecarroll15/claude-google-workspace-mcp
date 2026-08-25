@@ -383,11 +383,16 @@ async function main() {
             },
             start: {
               type: "string",
-              description: "New event start time in RFC3339 format.",
+              description:
+                "New event start in RFC3339 format, or a plain " +
+                "YYYY-MM-DD date for an all-day event.",
             },
             end: {
               type: "string",
-              description: "New event end time in RFC3339 format.",
+              description:
+                "New event end in RFC3339 format, or a plain " +
+                "YYYY-MM-DD date for an all-day event. All-day end " +
+                "dates are exclusive.",
             },
             timeZone: {
               type: "string",
@@ -399,6 +404,22 @@ async function main() {
                 type: "string",
               },
               description: "New attendee email addresses.",
+            },
+            colorId: {
+              type: "string",
+              description:
+                "Optional Google Calendar colour id, \"1\"-\"11\" " +
+                "(3=Grape, 6=Tangerine, 8=Graphite, 10=Basil, 11=Tomato).",
+            },
+            recurrence: {
+              type: "array",
+              items: {
+                type: "string",
+              },
+              description:
+                "Optional RFC5545 recurrence lines, e.g. " +
+                "[\"RRULE:FREQ=WEEKLY;UNTIL=20261204T235900Z\", " +
+                "\"EXDATE;TZID=Europe/Dublin:20261026T090000\"].",
             },
           },
           required: ["account", "eventId"],
@@ -431,11 +452,16 @@ async function main() {
             },
             start: {
               type: "string",
-              description: "Event start time in RFC3339 format.",
+              description:
+                "Event start in RFC3339 format, or a plain " +
+                "YYYY-MM-DD date for an all-day event.",
             },
             end: {
               type: "string",
-              description: "Event end time in RFC3339 format.",
+              description:
+                "Event end in RFC3339 format, or a plain " +
+                "YYYY-MM-DD date for an all-day event. All-day end " +
+                "dates are exclusive.",
             },
             timeZone: {
               type: "string",
@@ -447,6 +473,22 @@ async function main() {
                 type: "string",
               },
               description: "Optional list of attendee email addresses.",
+            },
+            colorId: {
+              type: "string",
+              description:
+                "Optional Google Calendar colour id, \"1\"-\"11\" " +
+                "(3=Grape, 6=Tangerine, 8=Graphite, 10=Basil, 11=Tomato).",
+            },
+            recurrence: {
+              type: "array",
+              items: {
+                type: "string",
+              },
+              description:
+                "Optional RFC5545 recurrence lines, e.g. " +
+                "[\"RRULE:FREQ=WEEKLY;UNTIL=20261204T235900Z\", " +
+                "\"EXDATE;TZID=Europe/Dublin:20261026T090000\"].",
             },
           },
           required: ["account", "summary", "start", "end"],
@@ -1262,6 +1304,8 @@ async function main() {
             end: args.end,
             timeZone: args.timeZone,
             attendees: args.attendees,
+            recurrence: args.recurrence,
+            colorId: args.colorId,
           }
         );
 
@@ -1287,6 +1331,8 @@ async function main() {
             end: args.end,
             timeZone: args.timeZone,
             attendees: args.attendees,
+            recurrence: args.recurrence,
+            colorId: args.colorId,
           }
         );
 

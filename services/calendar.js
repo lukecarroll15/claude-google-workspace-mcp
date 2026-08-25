@@ -7,6 +7,21 @@ function getCalendar(auth) {
   });
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+// Google Calendar needs `date` for all-day events and `dateTime` for timed
+// ones. Callers pass a single string, so pick the field from its shape.
+function timePoint(value, timeZone) {
+  if (DATE_ONLY.test(value)) {
+    return { date: value };
+  }
+
+  return {
+    dateTime: value,
+    ...(timeZone ? { timeZone } : {}),
+  };
+}
+
 async function listEvents(
   auth,
   { calendarId = "primary", timeMin, timeMax, maxResults = 20 } = {}
@@ -36,6 +51,9 @@ async function listEvents(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    colorId: event.colorId || null,
+    recurrence: event.recurrence || null,
+    recurringEventId: event.recurringEventId || null,
     htmlLink: event.htmlLink || "",
   }));
 }
@@ -70,6 +88,9 @@ async function searchEvents(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    colorId: event.colorId || null,
+    recurrence: event.recurrence || null,
+    recurringEventId: event.recurringEventId || null,
     htmlLink: event.htmlLink || "",
   }));
 }
@@ -85,6 +106,8 @@ async function createEvent(
     end,
     timeZone,
     attendees,
+    recurrence,
+    colorId,
   }
 ) {
   const calendar = getCalendar(auth);
@@ -93,14 +116,10 @@ async function createEvent(
     summary,
     description,
     location,
-    start: {
-      dateTime: start,
-      ...(timeZone ? { timeZone } : {}),
-    },
-    end: {
-      dateTime: end,
-      ...(timeZone ? { timeZone } : {}),
-    },
+    start: timePoint(start, timeZone),
+    end: timePoint(end, timeZone),
+    ...(recurrence?.length ? { recurrence } : {}),
+    ...(colorId ? { colorId } : {}),
     ...(attendees?.length
       ? {
           attendees: attendees.map((email) => ({
@@ -135,6 +154,9 @@ async function createEvent(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    colorId: response.data.colorId || null,
+    recurrence: response.data.recurrence || null,
+    recurringEventId: response.data.recurringEventId || null,
     htmlLink: response.data.htmlLink || "",
   };
 }
@@ -151,6 +173,8 @@ async function updateEvent(
     end,
     timeZone,
     attendees,
+    recurrence,
+    colorId,
   }
 ) {
   const calendar = getCalendar(auth);
@@ -162,17 +186,19 @@ async function updateEvent(
   if (location !== undefined) event.location = location;
 
   if (start !== undefined) {
-    event.start = {
-      dateTime: start,
-      ...(timeZone ? { timeZone } : {}),
-    };
+    event.start = timePoint(start, timeZone);
   }
 
   if (end !== undefined) {
-    event.end = {
-      dateTime: end,
-      ...(timeZone ? { timeZone } : {}),
-    };
+    event.end = timePoint(end, timeZone);
+  }
+
+  if (recurrence !== undefined) {
+    event.recurrence = recurrence;
+  }
+
+  if (colorId !== undefined) {
+    event.colorId = colorId;
   }
 
   if (attendees !== undefined) {
@@ -207,6 +233,9 @@ async function updateEvent(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    colorId: response.data.colorId || null,
+    recurrence: response.data.recurrence || null,
+    recurringEventId: response.data.recurringEventId || null,
     htmlLink: response.data.htmlLink || "",
   };
 }
