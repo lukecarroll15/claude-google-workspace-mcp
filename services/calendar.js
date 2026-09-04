@@ -51,6 +51,7 @@ async function listEvents(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    availability: event.transparency === "transparent" ? "free" : "busy",
     colorId: event.colorId || null,
     recurrence: event.recurrence || null,
     recurringEventId: event.recurringEventId || null,
@@ -88,6 +89,7 @@ async function searchEvents(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    availability: event.transparency === "transparent" ? "free" : "busy",
     colorId: event.colorId || null,
     recurrence: event.recurrence || null,
     recurringEventId: event.recurringEventId || null,
@@ -108,9 +110,15 @@ async function createEvent(
     attendees,
     recurrence,
     colorId,
+    availability,
   }
 ) {
   const calendar = getCalendar(auth);
+
+  // Google's web UI defaults all-day events to free and timed events to
+  // busy, but the API defaults everything to busy. Match the UI when the
+  // caller has not said which they want.
+  const effective = availability || (DATE_ONLY.test(start) ? "free" : null);
 
   const event = {
     summary,
@@ -120,6 +128,9 @@ async function createEvent(
     end: timePoint(end, timeZone),
     ...(recurrence?.length ? { recurrence } : {}),
     ...(colorId ? { colorId } : {}),
+    ...(effective
+      ? { transparency: effective === "free" ? "transparent" : "opaque" }
+      : {}),
     ...(attendees?.length
       ? {
           attendees: attendees.map((email) => ({
@@ -154,6 +165,8 @@ async function createEvent(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    availability:
+      response.data.transparency === "transparent" ? "free" : "busy",
     colorId: response.data.colorId || null,
     recurrence: response.data.recurrence || null,
     recurringEventId: response.data.recurringEventId || null,
@@ -175,6 +188,7 @@ async function updateEvent(
     attendees,
     recurrence,
     colorId,
+    availability,
   }
 ) {
   const calendar = getCalendar(auth);
@@ -199,6 +213,10 @@ async function updateEvent(
 
   if (colorId !== undefined) {
     event.colorId = colorId;
+  }
+
+  if (availability !== undefined) {
+    event.transparency = availability === "free" ? "transparent" : "opaque";
   }
 
   if (attendees !== undefined) {
@@ -233,6 +251,8 @@ async function updateEvent(
       responseStatus: attendee.responseStatus,
       organizer: !!attendee.organizer,
     })),
+    availability:
+      response.data.transparency === "transparent" ? "free" : "busy",
     colorId: response.data.colorId || null,
     recurrence: response.data.recurrence || null,
     recurringEventId: response.data.recurringEventId || null,

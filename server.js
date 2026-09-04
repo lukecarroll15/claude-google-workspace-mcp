@@ -411,6 +411,14 @@ async function main() {
                 "Optional Google Calendar colour id, \"1\"-\"11\" " +
                 "(3=Grape, 6=Tangerine, 8=Graphite, 10=Basil, 11=Tomato).",
             },
+            availability: {
+              type: "string",
+              enum: ["busy", "free"],
+              description:
+                "Whether the event blocks time when others check your " +
+                "availability. \"busy\" is the Google default, \"free\" " +
+                "leaves the slot bookable. Separate from event visibility.",
+            },
             recurrence: {
               type: "array",
               items: {
@@ -479,6 +487,15 @@ async function main() {
               description:
                 "Optional Google Calendar colour id, \"1\"-\"11\" " +
                 "(3=Grape, 6=Tangerine, 8=Graphite, 10=Basil, 11=Tomato).",
+            },
+            availability: {
+              type: "string",
+              enum: ["busy", "free"],
+              description:
+                "Whether the event blocks time when others check your " +
+                "availability. Defaults to \"free\" for all-day events and " +
+                "\"busy\" for timed ones, matching the Google Calendar web " +
+                "UI. Separate from event visibility.",
             },
             recurrence: {
               type: "array",
@@ -1306,6 +1323,7 @@ async function main() {
             attendees: args.attendees,
             recurrence: args.recurrence,
             colorId: args.colorId,
+            availability: args.availability,
           }
         );
 
@@ -1333,6 +1351,7 @@ async function main() {
             attendees: args.attendees,
             recurrence: args.recurrence,
             colorId: args.colorId,
+            availability: args.availability,
           }
         );
 
