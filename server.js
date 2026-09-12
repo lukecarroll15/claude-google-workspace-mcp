@@ -17,7 +17,7 @@ const {
   listAccounts,
 } = require("./auth/accounts");
 
-async function getDrive(account) {
+async function getAuth(account) {
   if (!account) {
     throw new Error(
       `Account is required. Available accounts: ${listAccounts().join(", ")}`
@@ -32,7 +32,11 @@ async function getDrive(account) {
     );
   }
 
-  const auth = await authenticate(account);
+  return authenticate(account);
+}
+
+async function getDrive(account) {
+  const auth = await getAuth(account);
 
   return google.drive({
     version: "v3",
@@ -49,6 +53,296 @@ function accountProperty() {
       `Google account to use. Available accounts: ${accounts.join(", ")}.`,
     enum: accounts,
   };
+}
+
+// Drive's own client library only ever does a single-shot multipart upload,
+// which silently truncates past a few megabytes. These implement the resumable
+// protocol by hand: open a session, PUT the file in chunks, and resume from
+// whatever byte Drive says it actually kept.
+
+const UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024;
+const UPLOAD_MAX_RETRIES = 5;
+
+const MIME_TYPES = {
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".csv": "text/csv",
+  ".json": "application/json",
+  ".html": "text/html",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".heic": "image/heic",
+  ".zip": "application/zip",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".doc": "application/msword",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx":
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+function guessMimeType(filePath) {
+  return (
+    MIME_TYPES[path.extname(filePath).toLowerCase()] ||
+    "application/octet-stream"
+  );
+}
+
+function headerValue(headers, key) {
+  if (!headers) {
+    return undefined;
+  }
+
+  // gaxios 7 returns a fetch Headers object, older versions a plain object.
+  if (typeof headers.get === "function") {
+    return headers.get(key);
+  }
+
+  return headers[key] ?? headers[key.toLowerCase()];
+}
+
+function parseRangeEnd(rangeHeader) {
+  // Drive answers a partial upload with "bytes=0-262143".
+  if (!rangeHeader) {
+    return -1;
+  }
+
+  const match = /bytes=\d+-(\d+)/.exec(rangeHeader);
+
+  return match ? Number(match[1]) : -1;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startUploadSession(
+  auth,
+  metadata,
+  mimeType,
+  totalBytes
+) {
+  const response = await auth.request({
+    url:
+      "https://www.googleapis.com/upload/drive/v3/files" +
+      "?uploadType=resumable" +
+      "&supportsAllDrives=true" +
+      "&fields=id,name,parents,size,mimeType,webViewLink",
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=UTF-8",
+      "X-Upload-Content-Type": mimeType,
+      "X-Upload-Content-Length": String(totalBytes),
+    },
+    data: JSON.stringify(metadata),
+  });
+
+  const sessionUri = headerValue(response.headers, "location");
+
+  if (!sessionUri) {
+    throw new Error(
+      "Drive did not return a resumable session URI."
+    );
+  }
+
+  return sessionUri;
+}
+
+async function queryUploadedBytes(auth, sessionUri, totalBytes) {
+  const response = await auth.request({
+    url: sessionUri,
+    method: "PUT",
+    headers: {
+      "Content-Range": `bytes */${totalBytes}`,
+    },
+    validateStatus: () => true,
+    responseType: "json",
+  });
+
+  if (response.status === 200 || response.status === 201) {
+    return { done: true, file: response.data };
+  }
+
+  if (response.status === 308) {
+    return {
+      done: false,
+      offset:
+        parseRangeEnd(headerValue(response.headers, "range")) + 1,
+    };
+  }
+
+  throw new Error(
+    `Upload session is no longer valid (HTTP ${response.status}).`
+  );
+}
+
+async function resumableUpload({
+  auth,
+  localPath,
+  name,
+  parentFolderId,
+  mimeType,
+}) {
+  const source = path.resolve(localPath);
+
+  if (!fs.existsSync(source)) {
+    throw new Error(`No such file: ${source}`);
+  }
+
+  const stats = fs.statSync(source);
+
+  if (stats.isDirectory()) {
+    throw new Error(
+      `${source} is a directory. Upload files one at a time.`
+    );
+  }
+
+  const totalBytes = stats.size;
+  const metadata = { name: name || path.basename(source) };
+
+  if (parentFolderId) {
+    metadata.parents = [parentFolderId];
+  }
+
+  // No mimeType on the metadata, so Drive stores the file as-is instead of
+  // converting a PDF or .docx into a Google Doc.
+  const sessionUri = await startUploadSession(
+    auth,
+    metadata,
+    mimeType || guessMimeType(source),
+    totalBytes
+  );
+
+  // An empty file still needs one request to close the session.
+  if (totalBytes === 0) {
+    const response = await auth.request({
+      url: sessionUri,
+      method: "PUT",
+      headers: { "Content-Range": "bytes */0" },
+      responseType: "json",
+    });
+
+    return response.data;
+  }
+
+  const handle = fs.openSync(source, "r");
+
+  try {
+    let offset = 0;
+    let attempts = 0;
+
+    while (offset < totalBytes) {
+      const length = Math.min(
+        UPLOAD_CHUNK_SIZE,
+        totalBytes - offset
+      );
+      const chunk = Buffer.allocUnsafe(length);
+
+      fs.readSync(handle, chunk, 0, length, offset);
+
+      const response = await auth.request({
+        url: sessionUri,
+        method: "PUT",
+        headers: {
+          "Content-Range":
+            `bytes ${offset}-${offset + length - 1}/${totalBytes}`,
+        },
+        data: chunk,
+        validateStatus: () => true,
+        responseType: "json",
+      });
+
+      if (response.status === 200 || response.status === 201) {
+        return response.data;
+      }
+
+      if (response.status === 308) {
+        const next =
+          parseRangeEnd(headerValue(response.headers, "range")) + 1;
+
+        if (next > offset) {
+          offset = next;
+          attempts = 0;
+          continue;
+        }
+
+        // Drive kept nothing from that chunk. Resend it, but do not spin
+        // forever if it keeps rejecting the same bytes.
+        attempts += 1;
+
+        if (attempts > UPLOAD_MAX_RETRIES) {
+          throw new Error(
+            `Upload stalled at byte ${offset} after ` +
+            `${UPLOAD_MAX_RETRIES} retries.`
+          );
+        }
+
+        await sleep(1000 * 2 ** (attempts - 1));
+        continue;
+      }
+
+      if (response.status === 429 || response.status >= 500) {
+        attempts += 1;
+
+        if (attempts > UPLOAD_MAX_RETRIES) {
+          throw new Error(
+            `Upload failed after ${UPLOAD_MAX_RETRIES} retries ` +
+            `(HTTP ${response.status}).`
+          );
+        }
+
+        await sleep(1000 * 2 ** (attempts - 1));
+
+        const status = await queryUploadedBytes(
+          auth,
+          sessionUri,
+          totalBytes
+        );
+
+        if (status.done) {
+          return status.file;
+        }
+
+        offset = status.offset;
+        continue;
+      }
+
+      throw new Error(
+        `Upload failed (HTTP ${response.status}): ` +
+        JSON.stringify(response.data)
+      );
+    }
+
+    // Only reached if Drive acknowledged every byte without ever returning
+    // the finished file metadata.
+    const status = await queryUploadedBytes(
+      auth,
+      sessionUri,
+      totalBytes
+    );
+
+    if (status.done) {
+      return status.file;
+    }
+
+    throw new Error(
+      "Drive accepted every chunk but never returned the file."
+    );
+  } finally {
+    fs.closeSync(handle);
+  }
 }
 
 async function main() {
@@ -162,6 +456,43 @@ async function main() {
               },
             },
             required: ["account", "fileId", "destinationPath"],
+          },
+        },
+
+        {
+          name: "upload_file",
+          description:
+            "Upload a local file to Google Drive. Keeps the original file " +
+            "format (a PDF stays a PDF, it is not converted to a Google Doc). " +
+            "Uses a resumable upload, so large files are safe.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              account: accountProperty(),
+              localPath: {
+                type: "string",
+                description:
+                  "Absolute path to the file on this computer.",
+              },
+              parentFolderId: {
+                type: "string",
+                description:
+                  "Destination folder ID. Defaults to My Drive root.",
+              },
+              name: {
+                type: "string",
+                description:
+                  "Name to give the file in Drive. Defaults to the " +
+                  "local filename.",
+              },
+              mimeType: {
+                type: "string",
+                description:
+                  "Override the MIME type. Normally guessed from the " +
+                  "file extension.",
+              },
+            },
+            required: ["account", "localPath"],
           },
         },
 
@@ -1049,6 +1380,29 @@ async function main() {
               text:
                 `Downloaded ${metadata.data.name} ` +
                 `to ${destination}`,
+            },
+          ],
+        };
+      }
+
+      // UPLOAD
+      if (name === "upload_file") {
+        const auth = await getAuth(args.account);
+
+        const file = await resumableUpload({
+          auth,
+          localPath: args.localPath,
+          name: args.name,
+          parentFolderId: args.parentFolderId,
+          mimeType: args.mimeType,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Uploaded: ` + JSON.stringify(file),
             },
           ],
         };
