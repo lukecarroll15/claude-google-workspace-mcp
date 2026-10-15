@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, sendDraft, replyToEmail, downloadAttachment } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, sendDraft, listLabels, createLabel, labelEmail, replyToEmail, downloadAttachment } = require("./services/gmail");
 const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
 const { createDocument, getDocument, updateDocument, appendToDocument } = require("./services/docs");
 const {
@@ -993,6 +993,67 @@ async function main() {
       },
 
       {
+        name: "list_labels",
+        description:
+          "List the Gmail labels on the selected account, system labels (INBOX, UNREAD, STARRED, IMPORTANT) and your own.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+          },
+          required: ["account"],
+        },
+      },
+
+      {
+        name: "create_label",
+        description: "Create a new Gmail label. Use / in the name to nest it.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            name: {
+              type: "string",
+              description: "Label name, e.g. branch/schools.",
+            },
+          },
+          required: ["account", "name"],
+        },
+      },
+
+      {
+        name: "label_email",
+        description:
+          "Add or remove Gmail labels by name. Archive: remove INBOX. Mark as read: remove UNREAD. Star: add STARRED. Acts on the whole conversation by default, like Gmail.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            messageId: {
+              type: "string",
+              description: "A Gmail message ID in the conversation.",
+            },
+            add: {
+              type: "array",
+              items: { type: "string" },
+              description: "Label names to add.",
+            },
+            remove: {
+              type: "array",
+              items: { type: "string" },
+              description: "Label names to remove.",
+            },
+            wholeThread: {
+              type: "boolean",
+              description:
+                "Apply to every message in the conversation. Defaults to true; false changes this message only.",
+            },
+          },
+          required: ["account", "messageId"],
+        },
+      },
+
+      {
         name: "send_draft",
         description:
           "Send an existing Gmail draft exactly as it is, including its attachments.",
@@ -1842,6 +1903,56 @@ async function main() {
             cc: args.cc,
             bcc: args.bcc,
             attachments: args.attachments,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "list_labels") {
+        const result = await listLabels(await authenticate(args.account));
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "create_label") {
+        const result = await createLabel(
+          await authenticate(args.account),
+          args.name
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "label_email") {
+        const result = await labelEmail(
+          await authenticate(args.account),
+          {
+            messageId: args.messageId,
+            add: args.add,
+            remove: args.remove,
+            wholeThread: args.wholeThread,
           }
         );
 

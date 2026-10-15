@@ -533,6 +533,94 @@ async function replyToEmail(
   };
 }
 
+async function listLabels(auth) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.labels.list({ userId: "me" });
+
+  return (response.data.labels || [])
+    .map((label) => ({ id: label.id, name: label.name, type: label.type }))
+    .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
+}
+
+async function createLabel(auth, name) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.labels.create({
+    userId: "me",
+    requestBody: {
+      name,
+      labelListVisibility: "labelShow",
+      messageListVisibility: "show",
+    },
+  });
+
+  return { id: response.data.id, name: response.data.name };
+}
+
+// Adds and removes labels by name. Archive is removing INBOX, mark as read is
+// removing UNREAD. Acts on the whole conversation by default, as Gmail's UI does.
+async function labelEmail(
+  auth,
+  { messageId, add = [], remove = [], wholeThread = true }
+) {
+  const gmail = getGmail(auth);
+
+  if (!add.length && !remove.length) {
+    throw new Error("Give at least one label to add or remove.");
+  }
+
+  const labels = await listLabels(auth);
+  const byName = new Map(
+    labels.flatMap((label) => [
+      [label.name.toLowerCase(), label],
+      [label.id.toLowerCase(), label],
+    ])
+  );
+
+  const resolve = (names) =>
+    names.map((name) => {
+      const label = byName.get(String(name).toLowerCase());
+      if (!label) {
+        throw new Error(
+          `No label "${name}". Use create_label first, or one of: ${labels
+            .map((l) => l.name)
+            .join(", ")}`
+        );
+      }
+      return label;
+    });
+
+  const addLabels = resolve(add);
+  const removeLabels = resolve(remove);
+
+  const requestBody = {
+    addLabelIds: addLabels.map((label) => label.id),
+    removeLabelIds: removeLabels.map((label) => label.id),
+  };
+
+  let threadId;
+
+  if (wholeThread) {
+    const message = await gmail.users.messages.get({
+      userId: "me",
+      id: messageId,
+      format: "minimal",
+    });
+    threadId = message.data.threadId;
+    await gmail.users.threads.modify({ userId: "me", id: threadId, requestBody });
+  } else {
+    await gmail.users.messages.modify({ userId: "me", id: messageId, requestBody });
+  }
+
+  return {
+    messageId,
+    ...(threadId ? { threadId } : {}),
+    added: addLabels.map((label) => label.name),
+    removed: removeLabels.map((label) => label.name),
+  };
+}
+
 async function sendDraft(auth, draftId) {
   const gmail = getGmail(auth);
 
@@ -550,6 +638,9 @@ async function sendDraft(auth, draftId) {
 }
 
 module.exports = {
+  listLabels,
+  createLabel,
+  labelEmail,
   sendDraft,
   searchEmails,
   getEmail,
