@@ -9,7 +9,7 @@ const {
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, replyToEmail, downloadAttachment } = require("./services/gmail");
+const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, sendDraft, replyToEmail, downloadAttachment } = require("./services/gmail");
 const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
 const { createDocument, getDocument, updateDocument, appendToDocument } = require("./services/docs");
 const {
@@ -912,7 +912,7 @@ async function main() {
       {
         name: "reply_to_email",
         description:
-          "Reply to an existing Gmail message while preserving its conversation thread.",
+          "Reply to an existing Gmail message while preserving its conversation thread. Replies to everyone on the original message by default; the result lists who it went to.",
         inputSchema: {
           type: "object",
           properties: {
@@ -924,6 +924,11 @@ async function main() {
             body: {
               type: "string",
               description: "Reply body.",
+            },
+            replyAll: {
+              type: "boolean",
+              description:
+                "Include the original To and Cc recipients. Defaults to true; set false to reply to the sender only.",
             },
             cc: {
               type: "string",
@@ -984,6 +989,23 @@ async function main() {
             },
           },
           required: ["account", "draftId", "to", "subject", "body"],
+        },
+      },
+
+      {
+        name: "send_draft",
+        description:
+          "Send an existing Gmail draft exactly as it is, including its attachments.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            account: accountProperty(),
+            draftId: {
+              type: "string",
+              description: "The Gmail draft ID to send.",
+            },
+          },
+          required: ["account", "draftId"],
         },
       },
 
@@ -1792,6 +1814,7 @@ async function main() {
           {
             messageId: args.messageId,
             body: args.body,
+            replyAll: args.replyAll,
             cc: args.cc,
             bcc: args.bcc,
             attachments: args.attachments,
@@ -1820,6 +1843,22 @@ async function main() {
             bcc: args.bcc,
             attachments: args.attachments,
           }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "send_draft") {
+        const result = await sendDraft(
+          await authenticate(args.account),
+          args.draftId
         );
 
         return {

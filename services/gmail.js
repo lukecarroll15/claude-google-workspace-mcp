@@ -399,14 +399,63 @@ async function updateDraft(
   };
 }
 
-async function replyToEmail(auth, { messageId, body, cc, bcc, attachments }) {
+// Splits an address header on commas outside quotes and angle brackets.
+function parseAddressList(value) {
+  const parts = [];
+  let current = "";
+  let inQuotes = false;
+  let inAngle = false;
+
+  for (const char of value || "") {
+    if (char === '"') inQuotes = !inQuotes;
+    if (char === "<" && !inQuotes) inAngle = true;
+    if (char === ">" && !inQuotes) inAngle = false;
+    if (char === "," && !inQuotes && !inAngle) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current);
+
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+function bareAddress(entry) {
+  return (entry.match(/<([^>]+)>/)?.[1] || entry).trim().toLowerCase();
+}
+
+// Drops duplicates and anything in `exclude` (bare addresses), keeping display names.
+function uniqueAddresses(entries, exclude = new Set()) {
+  const seen = new Set(exclude);
+  return entries.filter((entry) => {
+    const address = bareAddress(entry);
+    if (seen.has(address)) return false;
+    seen.add(address);
+    return true;
+  });
+}
+
+async function replyToEmail(
+  auth,
+  { messageId, body, cc, bcc, attachments, replyAll = true }
+) {
   const gmail = getGmail(auth);
 
   const original = await gmail.users.messages.get({
     userId: "me",
     id: messageId,
     format: "metadata",
-    metadataHeaders: ["From", "To", "Cc", "Subject", "Message-ID", "References"],
+    metadataHeaders: [
+      "From",
+      "Reply-To",
+      "To",
+      "Cc",
+      "Subject",
+      "Message-ID",
+      "References",
+    ],
   });
 
   const headers = original.data.payload?.headers || [];
@@ -423,7 +472,30 @@ async function replyToEmail(auth, { messageId, body, cc, bcc, attachments }) {
   const messageIdHeader = getHeader("Message-ID");
   const references = getHeader("References");
 
-  const replyTo = from.match(/<([^>]+)>/)?.[1] || from;
+  const profile = await gmail.users.getProfile({ userId: "me" });
+  const me = new Set([profile.data.emailAddress.toLowerCase()]);
+
+  // Mirrors Gmail: replying to your own message goes to its recipients,
+  // otherwise to the sender (or their Reply-To).
+  const sentByMe = me.has(bareAddress(from));
+  const primary = sentByMe
+    ? parseAddressList(originalTo)
+    : parseAddressList(getHeader("Reply-To") || from);
+
+  const toList = uniqueAddresses(primary, me);
+  const toSet = new Set([...me, ...toList.map(bareAddress)]);
+  const ccList = uniqueAddresses(
+    [
+      ...(replyAll && !sentByMe ? parseAddressList(originalTo) : []),
+      ...(replyAll ? parseAddressList(originalCc) : []),
+      ...parseAddressList(cc),
+    ],
+    toSet
+  );
+
+  if (!toList.length) {
+    throw new Error("Could not work out who to reply to.");
+  }
 
   const replySubject = /^re:/i.test(subject)
     ? subject
@@ -434,8 +506,8 @@ async function replyToEmail(auth, { messageId, body, cc, bcc, attachments }) {
     : messageIdHeader;
 
   const headersOut = [
-    `To: ${replyTo}`,
-    ...(cc ? [`Cc: ${cc}`] : []),
+    `To: ${toList.join(", ")}`,
+    ...(ccList.length ? [`Cc: ${ccList.join(", ")}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
     `Subject: ${encodeSubject(replySubject)}`,
     ...(messageIdHeader ? [`In-Reply-To: ${messageIdHeader}`] : []),
@@ -455,12 +527,30 @@ async function replyToEmail(auth, { messageId, body, cc, bcc, attachments }) {
   return {
     messageId: response.data.id,
     threadId: response.data.threadId,
-    to: replyTo,
+    to: toList.join(", "),
+    cc: ccList.join(", "),
     subject: replySubject,
   };
 }
 
+async function sendDraft(auth, draftId) {
+  const gmail = getGmail(auth);
+
+  const response = await gmail.users.drafts.send({
+    userId: "me",
+    requestBody: {
+      id: draftId,
+    },
+  });
+
+  return {
+    messageId: response.data.id,
+    threadId: response.data.threadId,
+  };
+}
+
 module.exports = {
+  sendDraft,
   searchEmails,
   getEmail,
   createDraft,
