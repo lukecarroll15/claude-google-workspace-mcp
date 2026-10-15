@@ -17,7 +17,15 @@ const SCOPES = [
   "https://www.googleapis.com/auth/tasks",
 ];
 
-async function login(account) {
+// Read-only scopes for an account that should only ever be searched, never
+// written to: `node auth/login.js <account> --readonly`.
+const READONLY_SCOPES = [
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
+
+async function login(account, readonly) {
   if (!account) {
     throw new Error(
       'Usage: node auth/login.js <account>\nExample: node auth/login.js personal'
@@ -44,7 +52,7 @@ async function login(account) {
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
-    scope: SCOPES,
+    scope: readonly ? READONLY_SCOPES : SCOPES,
     prompt: "consent",
   });
 
@@ -115,7 +123,7 @@ async function login(account) {
   console.error(`Token saved to: ${tokenFile}`);
 }
 
-login(process.argv[2]).catch((error) => {
+login(process.argv[2], process.argv.includes("--readonly")).catch((error) => {
   console.error("\nAuthentication failed:");
   console.error(error.message);
   process.exit(1);
