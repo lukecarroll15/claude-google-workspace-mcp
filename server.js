@@ -933,6 +933,12 @@ async function main() {
               type: "string",
               description: "Optional BCC recipients.",
             },
+            attachments: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional absolute paths to local files to attach. 25 MB total; share larger files through Drive.",
+            },
           },
           required: ["account", "messageId", "body"],
         },
@@ -969,6 +975,12 @@ async function main() {
             bcc: {
               type: "string",
               description: "Optional BCC recipients.",
+            },
+            attachments: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional absolute paths to local files to attach. 25 MB total; share larger files through Drive.",
             },
           },
           required: ["account", "draftId", "to", "subject", "body"],
@@ -1037,6 +1049,12 @@ async function main() {
               type: "string",
               description: "Optional BCC recipients.",
             },
+            attachments: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional absolute paths to local files to attach. 25 MB total; share larger files through Drive.",
+            },
           },
           required: ["account", "to", "subject", "body"],
         },
@@ -1069,6 +1087,12 @@ async function main() {
             bcc: {
               type: "string",
               description: "Optional BCC recipients.",
+            },
+            attachments: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Optional absolute paths to local files to attach. 25 MB total; share larger files through Drive.",
             },
           },
           required: ["account", "to", "subject", "body"],
@@ -1770,6 +1794,7 @@ async function main() {
             body: args.body,
             cc: args.cc,
             bcc: args.bcc,
+            attachments: args.attachments,
           }
         );
 
@@ -1793,6 +1818,7 @@ async function main() {
             body: args.body,
             cc: args.cc,
             bcc: args.bcc,
+            attachments: args.attachments,
           }
         );
 
@@ -1848,6 +1874,7 @@ async function main() {
             body: args.body,
             cc: args.cc,
             bcc: args.bcc,
+            attachments: args.attachments,
           }
         );
 
@@ -1871,6 +1898,7 @@ async function main() {
             body: args.body,
             cc: args.cc,
             bcc: args.bcc,
+            attachments: args.attachments,
           }
         );
 

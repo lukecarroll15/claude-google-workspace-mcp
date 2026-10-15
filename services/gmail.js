@@ -8,6 +8,107 @@ function encodeSubject(subject) {
     : subject;
 }
 
+const MIME_TYPES = {
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".csv": "text/csv",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".zip": "application/zip",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+};
+
+// Gmail's API caps a whole message at 35 MB; base64 inflates files by a third.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+function wrapBase64(buffer) {
+  return buffer.toString("base64").replace(/.{76}/g, "$&\r\n");
+}
+
+function encodeFilename(filename) {
+  return /[^\x20-\x7E]|"/.test(filename)
+    ? `filename*=UTF-8''${encodeURIComponent(filename)}`
+    : `filename="${filename}"`;
+}
+
+// attachments: local file paths. With none, the message stays single-part plain text.
+function buildRawMessage(headers, body, attachments = []) {
+  let lines;
+
+  if (!attachments.length) {
+    lines = [...headers, "Content-Type: text/plain; charset=utf-8", "", body];
+  } else {
+    let total = 0;
+    const files = attachments.map((filePath) => {
+      const resolved = path.resolve(filePath);
+      if (!fs.existsSync(resolved)) {
+        throw new Error(`Attachment not found: ${resolved}`);
+      }
+      const data = fs.readFileSync(resolved);
+      total += data.length;
+      return {
+        filename: path.basename(resolved),
+        mimeType:
+          MIME_TYPES[path.extname(resolved).toLowerCase()] ||
+          "application/octet-stream",
+        data,
+      };
+    });
+
+    if (total > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachments total ${(total / 1024 / 1024).toFixed(1)} MB; the limit is 25 MB. Share large files through Drive instead.`
+      );
+    }
+
+    const boundary = `mcp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+    lines = [
+      ...headers,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      wrapBase64(Buffer.from(body, "utf8")),
+      ...files.flatMap((file) => [
+        `--${boundary}`,
+        `Content-Type: ${file.mimeType}; name="${file.filename.replace(/"/g, "")}"`,
+        `Content-Disposition: attachment; ${encodeFilename(file.filename)}`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        wrapBase64(file.data),
+      ]),
+      `--${boundary}--`,
+      "",
+    ];
+  }
+
+  return Buffer.from(lines.join("\r\n"), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 function getGmail(auth) {
   return google.gmail({
     version: "v1",
@@ -181,7 +282,7 @@ async function getEmail(auth, messageId) {
 }
 
 
-async function sendEmail(auth, { to, subject, body, cc, bcc }) {
+async function sendEmail(auth, { to, subject, body, cc, bcc, attachments }) {
   const gmail = getGmail(auth);
 
   const headers = [
@@ -189,22 +290,9 @@ async function sendEmail(auth, { to, subject, body, cc, bcc }) {
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
     `Subject: ${encodeSubject(subject)}`,
-    "Content-Type: text/plain; charset=utf-8",
   ];
 
-  const message = [
-    ...headers,
-    "",
-    body,
-  ].join("\r\n");
-
-  const encodedMessage = Buffer.from(message, "utf8");
-
-  const raw = encodedMessage
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const raw = buildRawMessage(headers, body, attachments);
 
   const response = await gmail.users.messages.send({
     userId: "me",
@@ -281,7 +369,7 @@ async function deleteDraft(auth, draftId) {
 
 async function updateDraft(
   auth,
-  { draftId, to, subject, body, cc, bcc }
+  { draftId, to, subject, body, cc, bcc, attachments }
 ) {
   const gmail = getGmail(auth);
 
@@ -290,20 +378,9 @@ async function updateDraft(
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
     `Subject: ${encodeSubject(subject)}`,
-    "Content-Type: text/plain; charset=utf-8",
   ];
 
-  const message = [
-    ...headers,
-    "",
-    body,
-  ].join("\r\n");
-
-  const raw = Buffer.from(message, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const raw = buildRawMessage(headers, body, attachments);
 
   const response = await gmail.users.drafts.update({
     userId: "me",
@@ -322,7 +399,7 @@ async function updateDraft(
   };
 }
 
-async function replyToEmail(auth, { messageId, body, cc, bcc }) {
+async function replyToEmail(auth, { messageId, body, cc, bcc, attachments }) {
   const gmail = getGmail(auth);
 
   const original = await gmail.users.messages.get({
@@ -363,20 +440,9 @@ async function replyToEmail(auth, { messageId, body, cc, bcc }) {
     `Subject: ${encodeSubject(replySubject)}`,
     ...(messageIdHeader ? [`In-Reply-To: ${messageIdHeader}`] : []),
     ...(newReferences ? [`References: ${newReferences}`] : []),
-    "Content-Type: text/plain; charset=utf-8",
   ];
 
-  const message = [
-    ...headersOut,
-    "",
-    body,
-  ].join("\r\n");
-
-  const raw = Buffer.from(message, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const raw = buildRawMessage(headersOut, body, attachments);
 
   const response = await gmail.users.messages.send({
     userId: "me",
@@ -406,7 +472,7 @@ module.exports = {
   downloadAttachment,
 };
 
-async function createDraft(auth, { to, subject, body, cc, bcc }) {
+async function createDraft(auth, { to, subject, body, cc, bcc, attachments }) {
   const gmail = getGmail(auth);
 
   const headers = [
@@ -414,20 +480,9 @@ async function createDraft(auth, { to, subject, body, cc, bcc }) {
     ...(cc ? [`Cc: ${cc}`] : []),
     ...(bcc ? [`Bcc: ${bcc}`] : []),
     `Subject: ${encodeSubject(subject)}`,
-    "Content-Type: text/plain; charset=utf-8",
   ];
 
-  const message = [
-    ...headers,
-    "",
-    body,
-  ].join("\r\n");
-
-  const raw = Buffer.from(message, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const raw = buildRawMessage(headers, body, attachments);
 
   const response = await gmail.users.drafts.create({
     userId: "me",
