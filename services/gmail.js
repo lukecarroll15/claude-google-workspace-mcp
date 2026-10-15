@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 function encodeSubject(subject) {
-  return /[^\\x00-\\x7F]/.test(subject)
+  return /[^\x00-\x7F]/.test(subject)
     ? `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`
     : subject;
 }

@@ -1267,7 +1267,7 @@ async function main() {
       // LIST FOLDER
       if (name === "list_folder") {
         const response = await drive.files.list({
-          q: `'${args.folderId}' in parents and trashed = false`,
+          q: `'${args.folderId.replace(/[\\']/g, "\\$&")}' in parents and trashed = false`,
           fields:
             "files(id,name,mimeType,parents,modifiedTime,size,webViewLink)",
           orderBy: "folder,name",
