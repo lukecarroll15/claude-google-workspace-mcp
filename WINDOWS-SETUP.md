@@ -134,7 +134,7 @@ You have to move it by hand.
 On the **Mac**, it lives at:
 
 ```
-/Users/ldc/Projects/claude-drive-mcp/credentials.json
+/Users/ldc/Projects/mcp/google-workspace/credentials.json
 ```
 
 Copy that one file to Windows using a USB stick, OneDrive, or a password
@@ -213,7 +213,7 @@ Register it once, at **user scope**, so it's available in every project on the
 machine — not just this folder:
 
 ```powershell
-claude mcp add claude-drive-full-access -s user -- node "$HOME\Projects\claude-google-workspace-mcp\server.js"
+claude mcp add google-workspace -s user -- node "$HOME\Projects\claude-google-workspace-mcp\server.js"
 ```
 
 Check it connected:
@@ -225,7 +225,7 @@ claude mcp list
 You want to see:
 
 ```
-claude-drive-full-access: node C:\Users\...\server.js - ✔ Connected
+google-workspace: node C:\Users\...\server.js - ✔ Connected
 ```
 
 ---

@@ -360,7 +360,7 @@ async function main() {
 
   const server = new Server(
     {
-      name: "claude-google-workspace-mcp",
+      name: "google-workspace",
       version: "2.1.0",
     },
     {
