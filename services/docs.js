@@ -55,6 +55,25 @@ async function updateDocument(auth, { documentId, requests }) {
   };
 }
 
+async function replaceDocumentText(auth, { documentId, text }) {
+  const docs = getDocs(auth);
+  const document = await docs.documents.get({ documentId });
+  const content = document.data.body?.content || [];
+  const endIndex = content.reduce((max, el) => Math.max(max, el.endIndex || 1), 1);
+
+  const requests = [];
+  if (endIndex - 1 > 1) {
+    requests.push({ deleteContentRange: { range: { startIndex: 1, endIndex: endIndex - 1 } } });
+  }
+  if (text) {
+    requests.push({ insertText: { location: { index: 1 }, text } });
+  }
+  if (requests.length === 0) {
+    return { documentId, replies: [], writeControl: null };
+  }
+  return updateDocument(auth, { documentId, requests });
+}
+
 async function appendToDocument(auth, { documentId, text }) {
   const docs = getDocs(auth);
 
@@ -101,5 +120,6 @@ module.exports = {
   createDocument,
   getDocument,
   updateDocument,
+  replaceDocumentText,
   appendToDocument,
 };

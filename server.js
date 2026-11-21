@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const { searchEmails, getEmail, createDraft, sendEmail, listDrafts, deleteDraft, updateDraft, sendDraft, listLabels, createLabel, labelEmail, replyToEmail, downloadAttachment } = require("./services/gmail");
 const { listEvents, searchEvents, createEvent, updateEvent, deleteEvent } = require("./services/calendar");
-const { createDocument, getDocument, updateDocument, appendToDocument } = require("./services/docs");
+const { createDocument, getDocument, updateDocument, replaceDocumentText, appendToDocument } = require("./services/docs");
 const {
   authenticate,
   listAccounts,
@@ -625,7 +625,7 @@ async function main() {
 
     {
       name: "update_document",
-      description: "Replace the content of a Google Doc.",
+      description: "Replace the whole body of a Google Doc (first tab) with plain text. Drops all formatting; prefer batch_update_document for edits.",
       inputSchema: {
         type: "object",
         properties: {
@@ -640,6 +640,28 @@ async function main() {
           },
         },
         required: ["account", "documentId", "text"],
+      },
+    },
+
+    {
+      name: "batch_update_document",
+      description:
+        "Apply Google Docs API batchUpdate requests to a Doc, in order: insertText or deleteContentRange at exact indices, updateTextStyle (font, size, bold), updateParagraphStyle (namedStyleType such as TITLE or HEADING_1, alignment, spacing), insertPageBreak, createParagraphBullets, replaceAllText, and any other documents.batchUpdate request. Read the doc with get_document first to find indices; later requests see the indices left by earlier ones, so work from the end of the document backwards when inserting or deleting.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          account: accountProperty(),
+          documentId: {
+            type: "string",
+            description: "Google Docs document ID.",
+          },
+          requests: {
+            type: "array",
+            description: "Docs API Request objects, e.g. {\"updateTextStyle\": {...}}.",
+            items: { type: "object" },
+          },
+        },
+        required: ["account", "documentId", "requests"],
       },
     },
 
@@ -1146,18 +1168,27 @@ async function main() {
       {
         name: "create_draft",
         description:
-          "Create a Gmail draft without sending it.",
+          "Create a Gmail draft without sending it. Pass replyToMessageId to draft a reply inside that message's thread; recipients and subject then come from the original, as with reply_to_email.",
         inputSchema: {
           type: "object",
           properties: {
             account: accountProperty(),
             to: {
               type: "string",
-              description: "Recipient email address.",
+              description: "Recipient email address. Required unless replyToMessageId is given.",
             },
             subject: {
               type: "string",
-              description: "Email subject.",
+              description: "Email subject. Required unless replyToMessageId is given.",
+            },
+            replyToMessageId: {
+              type: "string",
+              description: "Optional Gmail message ID to reply to. The draft is threaded under it.",
+            },
+            replyAll: {
+              type: "boolean",
+              description:
+                "With replyToMessageId: include the original To and Cc recipients. Defaults to true; set false to reply to the sender only.",
             },
             body: {
               type: "string",
@@ -1178,7 +1209,7 @@ async function main() {
                 "Optional absolute paths to local files to attach. 25 MB total; share larger files through Drive.",
             },
           },
-          required: ["account", "to", "subject", "body"],
+          required: ["account", "body"],
         },
       },
 
@@ -1712,8 +1743,27 @@ async function main() {
         };
       }
 
-      if (name === "update_document") {
+      if (name === "batch_update_document") {
         const document = await updateDocument(
+          await authenticate(args.account),
+          {
+            documentId: args.documentId,
+            requests: args.requests,
+          }
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(document, null, 2),
+            },
+          ],
+        };
+      }
+
+      if (name === "update_document") {
+        const document = await replaceDocumentText(
           await authenticate(args.account),
           {
             documentId: args.documentId,
@@ -2040,6 +2090,10 @@ async function main() {
 
       // GMAIL CREATE DRAFT
       if (name === "create_draft") {
+        if (!args.replyToMessageId && (!args.to || !args.subject)) {
+          throw new Error("create_draft needs to and subject, or a replyToMessageId.");
+        }
+
         const draft = await createDraft(
           await authenticate(args.account),
           {
@@ -2049,6 +2103,8 @@ async function main() {
             cc: args.cc,
             bcc: args.bcc,
             attachments: args.attachments,
+            replyToMessageId: args.replyToMessageId,
+            replyAll: args.replyAll,
           }
         );
 

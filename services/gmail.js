@@ -183,29 +183,77 @@ function getHeader(headers, name) {
   return header?.value || "";
 }
 
+// First inline (non-attachment) part of the given type, searched depth-first.
+function findPart(payload, mimeType) {
+  if (!payload) return null;
+
+  if (payload.mimeType === mimeType && payload.body?.data && !payload.filename) {
+    return payload;
+  }
+
+  for (const part of payload.parts || []) {
+    const found = findPart(part, mimeType);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+const HTML_ENTITIES = {
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  pound: "£",
+  euro: "€",
+  copy: "©",
+  reg: "®",
+  ndash: "-",
+  mdash: "-",
+  hellip: "...",
+  rsquo: "'",
+  lsquo: "'",
+  rdquo: '"',
+  ldquo: '"',
+  zwnj: "",
+  zwj: "",
+};
+
+function htmlToText(html) {
+  return html
+    .replace(/<(head|style|script|title)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6]|table|section|blockquote)>/gi, "\n")
+    .replace(/<\/t[dh]>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-z]+);/gi, (match, name) => HTML_ENTITIES[name.toLowerCase()] ?? match)
+    .replace(/[​-‍­͏﻿]/g, "")
+    .replace(/\r/g, "")
+    .replace(/[ \t ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Prefers text/plain, but falls back to the HTML part when the plain part is
+// missing or much shorter (marketing/booking emails often ship a stub plain part).
 function extractBody(payload) {
   if (!payload) return "";
 
-  if (payload.body?.data) {
-    return decodeBase64Url(payload.body.data);
-  }
+  const plainPart = findPart(payload, "text/plain");
+  const htmlPart = findPart(payload, "text/html");
 
-  if (payload.parts) {
-    const plainPart = payload.parts.find(
-      (part) => part.mimeType === "text/plain"
-    );
+  const plain = plainPart ? decodeBase64Url(plainPart.body.data).trim() : "";
+  const html = htmlPart ? htmlToText(decodeBase64Url(htmlPart.body.data)) : "";
 
-    if (plainPart) {
-      return extractBody(plainPart);
-    }
+  if (html.length > plain.length * 2) return html;
 
-    for (const part of payload.parts) {
-      const result = extractBody(part);
-      if (result) return result;
-    }
-  }
-
-  return "";
+  return plain || html;
 }
 
 async function searchEmails(auth, query, maxResults = 20) {
@@ -437,12 +485,9 @@ function uniqueAddresses(entries, exclude = new Set()) {
   });
 }
 
-async function replyToEmail(
-  auth,
-  { messageId, body, cc, bcc, attachments, replyAll = true }
-) {
-  const gmail = getGmail(auth);
-
+// Works out recipients, subject and threading headers for a reply to
+// messageId. Shared by replyToEmail and threaded drafts.
+async function buildReply(gmail, { messageId, cc, bcc, replyAll = true }) {
   const original = await gmail.users.messages.get({
     userId: "me",
     id: messageId,
@@ -514,22 +559,39 @@ async function replyToEmail(
     ...(newReferences ? [`References: ${newReferences}`] : []),
   ];
 
-  const raw = buildRawMessage(headersOut, body, attachments);
+  return {
+    headers: headersOut,
+    threadId: original.data.threadId,
+    to: toList.join(", "),
+    cc: ccList.join(", "),
+    subject: replySubject,
+  };
+}
+
+async function replyToEmail(
+  auth,
+  { messageId, body, cc, bcc, attachments, replyAll = true }
+) {
+  const gmail = getGmail(auth);
+
+  const reply = await buildReply(gmail, { messageId, cc, bcc, replyAll });
+
+  const raw = buildRawMessage(reply.headers, body, attachments);
 
   const response = await gmail.users.messages.send({
     userId: "me",
     requestBody: {
       raw,
-      threadId: original.data.threadId,
+      threadId: reply.threadId,
     },
   });
 
   return {
     messageId: response.data.id,
     threadId: response.data.threadId,
-    to: toList.join(", "),
-    cc: ccList.join(", "),
-    subject: replySubject,
+    to: reply.to,
+    cc: reply.cc,
+    subject: reply.subject,
   };
 }
 
@@ -653,15 +715,26 @@ module.exports = {
   downloadAttachment,
 };
 
-async function createDraft(auth, { to, subject, body, cc, bcc, attachments }) {
+// With replyToMessageId, the draft is a reply in that message's thread and
+// recipients and subject come from the original (to and subject are ignored).
+async function createDraft(
+  auth,
+  { to, subject, body, cc, bcc, attachments, replyToMessageId, replyAll = true }
+) {
   const gmail = getGmail(auth);
 
-  const headers = [
-    `To: ${to}`,
-    ...(cc ? [`Cc: ${cc}`] : []),
-    ...(bcc ? [`Bcc: ${bcc}`] : []),
-    `Subject: ${encodeSubject(subject)}`,
-  ];
+  const reply = replyToMessageId
+    ? await buildReply(gmail, { messageId: replyToMessageId, cc, bcc, replyAll })
+    : null;
+
+  const headers = reply
+    ? reply.headers
+    : [
+        `To: ${to}`,
+        ...(cc ? [`Cc: ${cc}`] : []),
+        ...(bcc ? [`Bcc: ${bcc}`] : []),
+        `Subject: ${encodeSubject(subject)}`,
+      ];
 
   const raw = buildRawMessage(headers, body, attachments);
 
@@ -670,6 +743,7 @@ async function createDraft(auth, { to, subject, body, cc, bcc, attachments }) {
     requestBody: {
       message: {
         raw,
+        ...(reply ? { threadId: reply.threadId } : {}),
       },
     },
   });
@@ -678,5 +752,6 @@ async function createDraft(auth, { to, subject, body, cc, bcc, attachments }) {
     draftId: response.data.id,
     messageId: response.data.message?.id,
     threadId: response.data.message?.threadId,
+    ...(reply ? { to: reply.to, cc: reply.cc, subject: reply.subject } : {}),
   };
 }
