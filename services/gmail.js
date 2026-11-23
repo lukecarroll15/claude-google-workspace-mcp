@@ -256,6 +256,16 @@ function extractBody(payload) {
   return plain || html;
 }
 
+const SEARCH_RESULT_LABELS = new Set(["UNREAD", "SENT", "DRAFT"]);
+
+// Marketing emails pad their previews with invisible characters.
+function cleanSnippet(snippet) {
+  return (snippet || "")
+    .replace(/[\u00ad\u034f\u200b-\u200f\u2060\ufeff]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function searchEmails(auth, query, maxResults = 20) {
   const gmail = getGmail(auth);
 
@@ -286,16 +296,21 @@ async function searchEmails(auth, query, maxResults = 20) {
     const data = response.data;
     const headers = data.payload?.headers || [];
 
+    const cc = getHeader(headers, "Cc");
+    const labelIds = (data.labelIds || []).filter((label) =>
+      SEARCH_RESULT_LABELS.has(label)
+    );
+
     results.push({
       id: data.id,
       threadId: data.threadId,
       from: getHeader(headers, "From"),
       to: getHeader(headers, "To"),
-      cc: getHeader(headers, "Cc"),
+      ...(cc ? { cc } : {}),
       subject: getHeader(headers, "Subject"),
       date: getHeader(headers, "Date"),
-      labelIds: data.labelIds || [],
-      snippet: data.snippet || "",
+      ...(labelIds.length ? { labelIds } : {}),
+      snippet: cleanSnippet(data.snippet),
     });
   }
 
